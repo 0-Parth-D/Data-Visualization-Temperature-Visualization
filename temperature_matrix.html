@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hong Kong Monthly Temperature Matrix (2008-2017)</title>
+    <meta name="description" content="Interactive matrix visualization of Hong Kong monthly temperature data from 2008 to 2017">
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <a href="#main-content" class="skip-link">Skip to main content</a>
+    
+    <header role="banner">
+        <h1>Hong Kong Monthly Temperature Matrix (2008-2017)</h1>
+        <p class="subtitle">Explore 10 years of temperature patterns in an interactive matrix view</p>
+    </header>
+
+    <main id="main-content" role="main">
+        <section class="instructions-section" aria-labelledby="instructions-heading">
+            <div class="instructions-box">
+                <h2 id="instructions-heading" class="sr-only">How to Use</h2>
+                <div class="instruction-content">
+                    <div class="instruction-item">
+                        <span class="icon">🖱️</span>
+                        <div>
+                            <strong>Click any cell</strong> to switch between Maximum and Minimum temperature views
+                        </div>
+                    </div>
+                    <div class="instruction-item">
+                        <span class="icon">👆</span>
+                        <div>
+                            <strong>Hover over cells</strong> to see detailed temperature information
+                        </div>
+                    </div>
+                    <div class="instruction-item">
+                        <span class="icon">📊</span>
+                        <div>
+                            <strong>Each cell</strong> shows a mini line chart of daily temperature changes
+                        </div>
+                    </div>
+                    <div class="instruction-item">
+                        <span class="icon">🎨</span>
+                        <div>
+                            <strong>Color intensity</strong> indicates temperature (warmer = brighter colors)
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section class="controls-section" aria-labelledby="controls-heading">
+            <h2 id="controls-heading" class="sr-only">View Controls</h2>
+            <div class="view-controls">
+                <div class="view-indicator">
+                    <div class="indicator-label">Current View:</div>
+                    <button id="toggle-view-btn" class="toggle-button" aria-pressed="true" aria-label="Toggle between maximum and minimum temperature view">
+                        <span class="view-icon" id="view-icon">🌡️</span>
+                        <span class="view-text" id="view-text">Maximum Temperature</span>
+                    </button>
+                </div>
+            </div>
+        </section>
+
+        <section aria-labelledby="matrix-heading">
+            <h2 id="matrix-heading" class="sr-only">Temperature Matrix Visualization</h2>
+            <div id="matrix-container" role="img" aria-label="Matrix visualization of monthly temperatures">
+                <div class="loading" role="status" aria-live="polite" aria-busy="true">
+                    <div class="loading-spinner"></div>
+                    <div>Loading temperature data...</div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <div id="tooltip" class="tooltip" role="tooltip" aria-hidden="true"></div>
+
+    <script src="script.js"></script>
+</body>
+</html>
