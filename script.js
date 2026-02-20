@@ -21,6 +21,56 @@ let minTemp, maxTemp;
 let cells, tooltip, svg, g;
 let cellElements = [];
 
+// Helper function to adjust color brightness for better visibility
+function adjustColorBrightness(color, factor) {
+    // Convert hex to rgb
+    const hex = color.replace('#', '');
+    const r = parseInt(hex.substr(0, 2), 16);
+    const g = parseInt(hex.substr(2, 2), 16);
+    const b = parseInt(hex.substr(4, 2), 16);
+    
+    // Adjust brightness (factor > 1 = lighter, < 1 = darker)
+    const newR = Math.min(255, Math.max(0, Math.round(r * factor)));
+    const newG = Math.min(255, Math.max(0, Math.round(g * factor)));
+    const newB = Math.min(255, Math.max(0, Math.round(b * factor)));
+    
+    return `rgb(${newR}, ${newG}, ${newB})`;
+}
+
+// Helper function to get darker/more visible version of color for lines
+function getLineColor(baseColor, isMax) {
+    // Convert color to RGB values
+    let r, g, b;
+    
+    if (baseColor.startsWith('rgb')) {
+        // Handle rgb() format from D3 color scale
+        const rgb = baseColor.match(/\d+/g);
+        r = parseInt(rgb[0]);
+        g = parseInt(rgb[1]);
+        b = parseInt(rgb[2]);
+    } else if (baseColor.startsWith('#')) {
+        // Handle hex format
+        const hex = baseColor.replace('#', '');
+        r = parseInt(hex.substr(0, 2), 16);
+        g = parseInt(hex.substr(2, 2), 16);
+        b = parseInt(hex.substr(4, 2), 16);
+    } else {
+        // Fallback to darker colors
+        return isMax ? '#1a4a7a' : '#2a6a8a';
+    }
+    
+    // Make lines darker and more visible against the background
+    // For max line: darker (factor 0.35) - more contrast
+    // For min line: darker (factor 0.45) - slightly lighter than max for distinction
+    const factor = isMax ? 0.35 : 0.45;
+    
+    const newR = Math.min(255, Math.max(0, Math.round(r * factor)));
+    const newG = Math.min(255, Math.max(0, Math.round(g * factor)));
+    const newB = Math.min(255, Math.max(0, Math.round(b * factor)));
+    
+    return `rgb(${newR}, ${newG}, ${newB})`;
+}
+
 // Screen reader announcements
 function announceToScreenReader(message) {
     const announcement = document.createElement('div');
@@ -88,10 +138,10 @@ d3.csv("temperature_daily.csv").then(function(data) {
         dailyLookup[key].push(d);
     });
     
-    // Calculate color scale domain
+    // Calculate color scale domain using actual max/min from daily data
     let tempValues = [];
-    monthlyData.forEach(d => {
-        tempValues.push(d.max_temp_mean, d.min_temp_mean);
+    dailyData.forEach(d => {
+        tempValues.push(d.max_temperature, d.min_temperature);
     });
     minTemp = d3.min(tempValues);
     maxTemp = d3.max(tempValues);
@@ -155,7 +205,16 @@ function initVisualization() {
         .attr("role", "button")
         .attr("aria-label", d => {
             if (!d.data) return `${monthNames[d.month - 1]} ${d.year}, no data available`;
-            const temp = showMax ? d.data.max_temp_mean : d.data.min_temp_mean;
+            // Use actual max/min from daily data
+            const cellDaily = dailyLookup[d.key] || [];
+            if (cellDaily.length === 0) return `${monthNames[d.month - 1]} ${d.year}, no data available`;
+            
+            let temp;
+            if (showMax) {
+                temp = d3.max(cellDaily.map(day => day.max_temperature));
+            } else {
+                temp = d3.min(cellDaily.map(day => day.min_temperature));
+            }
             const tempType = showMax ? "maximum" : "minimum";
             return `${monthNames[d.month - 1]} ${d.year}, ${tempType} temperature ${temp.toFixed(1)} degrees Celsius. Press Enter or Space to switch view.`;
         });
@@ -171,7 +230,18 @@ function initVisualization() {
         .attr("ry", 6)
         .attr("fill", d => {
             if (!d.data) return "#1a1a1a";
-            const temp = showMax ? d.data.max_temp_mean : d.data.min_temp_mean;
+            // Use actual max/min from daily data, not monthly averages
+            const cellDaily = dailyLookup[d.key] || [];
+            if (cellDaily.length === 0) return "#1a1a1a";
+            
+            let temp;
+            if (showMax) {
+                // Get the maximum of all max temperatures for this month
+                temp = d3.max(cellDaily.map(day => day.max_temperature));
+            } else {
+                // Get the minimum of all min temperatures for this month
+                temp = d3.min(cellDaily.map(day => day.min_temperature));
+            }
             return colorScale(temp);
         })
         .attr("stroke", "#404040")
@@ -261,24 +331,50 @@ function initVisualization() {
             .domain([1, d3.max(cellDaily, d => d.day)])
             .range([0, chartWidth]);
         
-        const tempValues = cellDaily.map(d => showMax ? d.max_temperature : d.min_temperature);
+        // Calculate combined domain for both max and min temperatures
+        const maxTemps = cellDaily.map(d => d.max_temperature);
+        const minTemps = cellDaily.map(d => d.min_temperature);
+        const allTemps = [...maxTemps, ...minTemps];
         const yScale = d3.scaleLinear()
-            .domain(d3.extent(tempValues))
+            .domain(d3.extent(allTemps))
             .range([chartHeight, 0]);
         
-        // Line generator
-        const line = d3.line()
+        // Line generators for both max and min
+        const maxLine = d3.line()
             .x(d => xScale(d.day))
-            .y(d => yScale(showMax ? d.max_temperature : d.min_temperature))
+            .y(d => yScale(d.max_temperature))
             .curve(d3.curveMonotoneX);
         
-        // Draw line
+        const minLine = d3.line()
+            .x(d => xScale(d.day))
+            .y(d => yScale(d.min_temperature))
+            .curve(d3.curveMonotoneX);
+        
+        // Calculate max and min temperatures for color coding
+        const maxTempValue = d3.max(maxTemps);
+        const minTempValue = d3.min(minTemps);
+        
+        // Get base colors from color scale
+        const baseMinColor = colorScale(minTempValue);
+        const baseMaxColor = colorScale(maxTempValue);
+        
+        // Draw min temperature line with adjusted color for visibility
         chartG.append("path")
             .datum(cellDaily)
             .attr("fill", "none")
-            .attr("stroke", "#333")
+            .attr("stroke", getLineColor(baseMinColor, false))
             .attr("stroke-width", 1.5)
-            .attr("d", line);
+            .attr("class", "min-line")
+            .attr("d", minLine);
+        
+        // Draw max temperature line with adjusted color for visibility
+        chartG.append("path")
+            .datum(cellDaily)
+            .attr("fill", "none")
+            .attr("stroke", getLineColor(baseMaxColor, true))
+            .attr("stroke-width", 1.5)
+            .attr("class", "max-line")
+            .attr("d", maxLine);
     });
     
     // Add year labels (x-axis)
@@ -371,16 +467,22 @@ function updateToggleButton() {
 function showTooltip(event, d) {
     if (!d.data) return;
     
-    const temp = showMax ? d.data.max_temp_mean : d.data.min_temp_mean;
-    const tempType = showMax ? "Maximum" : "Minimum";
-    const date = `${monthNames[d.month - 1]} ${d.year}`;
     const cellDaily = dailyLookup[d.key] || [];
     const dailyCount = cellDaily.length;
     
-    // Calculate additional stats
-    const allTemps = cellDaily.map(d => showMax ? d.max_temperature : d.min_temperature);
-    const maxTemp = allTemps.length > 0 ? Math.max(...allTemps).toFixed(1) : 'N/A';
-    const minTemp = allTemps.length > 0 ? Math.min(...allTemps).toFixed(1) : 'N/A';
+    // Calculate actual max/min temperatures
+    let temp, maxTemp, minTemp;
+    if (showMax) {
+        temp = cellDaily.length > 0 ? d3.max(cellDaily.map(day => day.max_temperature)).toFixed(1) : 'N/A';
+        maxTemp = cellDaily.length > 0 ? d3.max(cellDaily.map(day => day.max_temperature)).toFixed(1) : 'N/A';
+        minTemp = cellDaily.length > 0 ? d3.min(cellDaily.map(day => day.max_temperature)).toFixed(1) : 'N/A';
+    } else {
+        temp = cellDaily.length > 0 ? d3.min(cellDaily.map(day => day.min_temperature)).toFixed(1) : 'N/A';
+        maxTemp = cellDaily.length > 0 ? d3.max(cellDaily.map(day => day.min_temperature)).toFixed(1) : 'N/A';
+        minTemp = cellDaily.length > 0 ? d3.min(cellDaily.map(day => day.min_temperature)).toFixed(1) : 'N/A';
+    }
+    const tempType = showMax ? "Maximum" : "Minimum";
+    const date = `${monthNames[d.month - 1]} ${d.year}`;
     
     tooltip
         .attr("aria-hidden", "false")
@@ -388,7 +490,7 @@ function showTooltip(event, d) {
         .html(`
             <strong>${date}</strong>
             <div style="margin-top: 8px;">
-                <div style="margin-bottom: 4px;">${tempType} Average: <strong>${temp.toFixed(1)}°C</strong></div>
+                <div style="margin-bottom: 4px;">${tempType} Temperature: <strong>${temp}°C</strong></div>
                 <div style="font-size: 0.9em; color: #b0b0b0;">
                     Range: ${minTemp}°C - ${maxTemp}°C<br/>
                     ${dailyCount} days of data
@@ -410,14 +512,34 @@ function updateVisualization() {
     cells.select("rect")
         .attr("fill", d => {
             if (!d.data) return "#1a1a1a";
-            const temp = showMax ? d.data.max_temp_mean : d.data.min_temp_mean;
+            // Use actual max/min from daily data, not monthly averages
+            const cellDaily = dailyLookup[d.key] || [];
+            if (cellDaily.length === 0) return "#1a1a1a";
+            
+            let temp;
+            if (showMax) {
+                // Get the maximum of all max temperatures for this month
+                temp = d3.max(cellDaily.map(day => day.max_temperature));
+            } else {
+                // Get the minimum of all min temperatures for this month
+                temp = d3.min(cellDaily.map(day => day.min_temperature));
+            }
             return colorScale(temp);
         });
     
     // Update ARIA labels
     cells.attr("aria-label", d => {
         if (!d.data) return `${monthNames[d.month - 1]} ${d.year}, no data available`;
-        const temp = showMax ? d.data.max_temp_mean : d.data.min_temp_mean;
+        // Use actual max/min from daily data
+        const cellDaily = dailyLookup[d.key] || [];
+        if (cellDaily.length === 0) return `${monthNames[d.month - 1]} ${d.year}, no data available`;
+        
+        let temp;
+        if (showMax) {
+            temp = d3.max(cellDaily.map(day => day.max_temperature));
+        } else {
+            temp = d3.min(cellDaily.map(day => day.min_temperature));
+        }
         const tempType = showMax ? "maximum" : "minimum";
         return `${monthNames[d.month - 1]} ${d.year}, ${tempType} temperature ${temp.toFixed(1)} degrees Celsius. Press Enter or Space to switch view.`;
     });
@@ -432,26 +554,47 @@ function updateVisualization() {
         const chartG = d3.select(this).select("g");
         if (chartG.empty()) return;
         
-        // Update scales
-        const tempValues = cellDaily.map(d => showMax ? d.max_temperature : d.min_temperature);
+        // Update scales - use combined domain for both max and min
+        const maxTemps = cellDaily.map(d => d.max_temperature);
+        const minTemps = cellDaily.map(d => d.min_temperature);
+        const allTemps = [...maxTemps, ...minTemps];
         const yScale = d3.scaleLinear()
-            .domain(d3.extent(tempValues))
+            .domain(d3.extent(allTemps))
             .range([chartHeight, 0]);
         
-        // Update line
-        const line = d3.line()
-            .x(d => {
-                const xScale = d3.scaleLinear()
-                    .domain([1, d3.max(cellDaily, d => d.day)])
-                    .range([0, chartWidth]);
-                return xScale(d.day);
-            })
-            .y(d => yScale(showMax ? d.max_temperature : d.min_temperature))
+        // Calculate max and min temperatures for color coding
+        const maxTempValue = d3.max(maxTemps);
+        const minTempValue = d3.min(minTemps);
+        
+        // Line generators for both max and min
+        const xScale = d3.scaleLinear()
+            .domain([1, d3.max(cellDaily, d => d.day)])
+            .range([0, chartWidth]);
+        
+        const maxLine = d3.line()
+            .x(d => xScale(d.day))
+            .y(d => yScale(d.max_temperature))
             .curve(d3.curveMonotoneX);
         
-        chartG.select("path")
+        const minLine = d3.line()
+            .x(d => xScale(d.day))
+            .y(d => yScale(d.min_temperature))
+            .curve(d3.curveMonotoneX);
+        
+        // Get base colors from color scale
+        const baseMinColor = colorScale(minTempValue);
+        const baseMaxColor = colorScale(maxTempValue);
+        
+        // Update both lines with adjusted colors for visibility
+        chartG.select(".min-line")
             .datum(cellDaily)
-            .attr("d", line);
+            .attr("stroke", getLineColor(baseMinColor, false))
+            .attr("d", minLine);
+        
+        chartG.select(".max-line")
+            .datum(cellDaily)
+            .attr("stroke", getLineColor(baseMaxColor, true))
+            .attr("d", maxLine);
     });
     
     // Update toggle button
